@@ -8,7 +8,6 @@
 
 **Career Counseling & Guide Portal** is a comprehensive, full-featured web-based platform designed to bridge the gap between students and career guidance services. It provides an integrated ecosystem where students can explore career paths, receive personalized counseling, access learning resources, and track their professional development journey. The platform features secure authentication, real-time feedback systems, and an intuitive admin dashboard for comprehensive resource and user management.
 
-**Live Platform**: http://localhost/Career-Counseling-Guide-Portal/
 
 ---
 
