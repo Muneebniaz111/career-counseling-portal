@@ -17,6 +17,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 
 require_once __DIR__ . '/bootstrap.php';
 
+// CRITICAL FIX: Use $conn from bootstrap.php or create $mysqli alias
+$mysqli = $conn ?? new mysqli("localhost", "root", "", "career_counseling");
+
+// Check connection
+if ($mysqli->connect_error) {
+    http_response_code(500);
+    $response['message'] = 'Database connection failed: ' . $mysqli->connect_error;
+    echo json_encode($response);
+    exit();
+}
+
 // Initialize response structure
 $response = [
     'success' => false,
@@ -110,7 +121,7 @@ try {
 } catch (Exception $e) {
     http_response_code(500);
     $response['success'] = false;
-    $response['message'] = 'Server error occurred. Please try again.';
+    $response['message'] = $e->getMessage(); // Return actual error message for debugging
     log_error('Exception: ' . $e->getMessage());
 }
 
@@ -121,7 +132,7 @@ exit();
 
 function handle_get_profile(&$mysqli, $admin_id, &$response) {
     $query = "SELECT 
-        id, name, email, phone, bio, avatar_url, created_at, updated_at 
+        id, name, email, created_at
         FROM admin_users 
         WHERE id = ?";
     
@@ -148,8 +159,6 @@ function handle_update_profile(&$mysqli, $admin_id, &$response) {
     // Validate input
     $fullname = trim($_POST['fullname'] ?? '');
     $email = trim($_POST['email'] ?? '');
-    $phone = trim($_POST['phone'] ?? '');
-    $bio = trim($_POST['bio'] ?? '');
     
     $errors = [];
     
@@ -159,14 +168,6 @@ function handle_update_profile(&$mysqli, $admin_id, &$response) {
     
     if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
         $errors[] = 'Invalid email format';
-    }
-    
-    if (!empty($phone) && !preg_match('/^[0-9\-\+\(\)\s]{7,20}$/', $phone)) {
-        $errors[] = 'Invalid phone number format';
-    }
-    
-    if (strlen($bio) > 500) {
-        $errors[] = 'Bio must be 500 characters or less';
     }
     
     if (!empty($errors)) {
@@ -186,9 +187,9 @@ function handle_update_profile(&$mysqli, $admin_id, &$response) {
         return;
     }
     
-    // Update profile
+    // Update profile - only update columns that exist
     $query = "UPDATE admin_users 
-        SET name = ?, email = ?, phone = ?, bio = ?, updated_at = NOW()
+        SET name = ?, email = ?
         WHERE id = ?";
     
     $stmt = $mysqli->prepare($query);
@@ -196,7 +197,7 @@ function handle_update_profile(&$mysqli, $admin_id, &$response) {
         throw new Exception("Query preparation failed: " . $mysqli->error);
     }
     
-    $stmt->bind_param("ssssi", $fullname, $email, $phone, $bio, $admin_id);
+    $stmt->bind_param("ssi", $fullname, $email, $admin_id);
     
     if (!$stmt->execute()) {
         throw new Exception("Update failed: " . $stmt->error);
@@ -204,7 +205,6 @@ function handle_update_profile(&$mysqli, $admin_id, &$response) {
     
     // Update session data
     $_SESSION['admin_name'] = $fullname;
-    $_SESSION['admin_email'] = $email;
     
     $response['success'] = true;
     $response['message'] = 'Profile updated successfully';
@@ -547,5 +547,4 @@ function create_default_preferences(&$mysqli, $admin_id) {
     $insert->bind_param("issi", $admin_id, $theme, $color, $animations);
     $insert->execute();
 }
-?>
 

@@ -888,16 +888,6 @@ $current_color = $_SESSION['accent_color'] ?? '#800080';
                                 <input type="email" class="form-control" id="email" placeholder="admin@careerportal.com">
                             </div>
 
-                            <div class="form-group">
-                                <label for="phone"><i class="fas fa-phone"></i> Phone Number</label>
-                                <input type="tel" class="form-control" id="phone" placeholder="+92-300-1234567">
-                            </div>
-
-                            <div class="form-group">
-                                <label for="bio"><i class="fas fa-align-left"></i> Bio</label>
-                                <textarea class="form-control" id="bio" placeholder="Tell us about yourself..."></textarea>
-                            </div>
-
                             <button type="submit" class="btn btn-primary">
                                 <i class="fas fa-save"></i> Save Changes
                             </button>
@@ -1206,8 +1196,6 @@ $current_color = $_SESSION['accent_color'] ?? '#800080';
                         // Populate form fields
                         $('#fullname').val(profile.name || '');
                         $('#email').val(profile.email || '');
-                        $('#phone').val(profile.phone || '');
-                        $('#bio').val(profile.bio || '');
                         
                         // Update header
                         $('#profile-name').text(profile.name || 'Admin');
@@ -1386,8 +1374,6 @@ $current_color = $_SESSION['accent_color'] ?? '#800080';
             formData.append('action', 'update_profile');
             formData.append('fullname', $('#fullname').val());
             formData.append('email', $('#email').val());
-            formData.append('phone', $('#phone').val());
-            formData.append('bio', $('#bio').val());
             
             fetch('admin_settings_api.php', {
                 method: 'POST',

@@ -1,10 +1,18 @@
 <?php
 require_once __DIR__ . '/bootstrap.php';
 
+// Database connection - MUST be before any database operations
+$mysqli = new mysqli("localhost", "root", "", "career_counseling");
+
 // Check if admin is logged in
 if (!isset($_SESSION['admin_id']) || $_SESSION['user_type'] !== 'admin') {
     header("Location: Log-in (Admin).php");
     exit();
+}
+
+// Initialize CSRF token if not present
+if (!isset($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
 }
 
 // CRITICAL FIX: Verify admin exists in database to prevent privilege escalation
@@ -24,8 +32,6 @@ $admin_verify->close();
 $admin_id = $_SESSION['admin_id'];
 $admin_name = $_SESSION['admin_name'] ?? 'Admin';
 
-$mysqli = new mysqli("localhost", "root", "", "career_counseling");
-
 // Handle delete
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'delete') {
     // CRITICAL FIX: Add CSRF token validation
@@ -35,6 +41,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
     
     $contact_id = intval($_POST['contact_id']);
+    
+    // Delete related records first due to foreign key constraints
+    $mysqli->query("DELETE FROM contact_replies WHERE contact_id = $contact_id");
+    $mysqli->query("DELETE FROM admin_contact_notifications WHERE contact_id = $contact_id");
+    
+    // Now delete the message itself
     $delete_stmt = $mysqli->prepare("DELETE FROM contact_messages WHERE id = ?");
     $delete_stmt->bind_param("i", $contact_id);
     $delete_stmt->execute();

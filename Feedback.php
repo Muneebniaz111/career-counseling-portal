@@ -2,8 +2,10 @@
 session_start();
 require_once __DIR__ . '/bootstrap.php';
 
-require_once __DIR__ . '/bootstrap.php';
-// $csrf_token = $_SESSION['csrf_token'] ?? bin2hex(random_bytes(32));
+// Initialize CSRF token if not present
+if (!isset($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -456,7 +458,7 @@ require_once __DIR__ . '/bootstrap.php';
     <!-- Navigation -->
     <nav class="navbar navbar-expand-lg navbar-light">
         <div class="container-fluid px-2 px-md-4">
-            <a class="navbar-brand" href="index.html">
+            <a class="navbar-brand" href="Student.html">
                 <img src="shikshalogo.jpg" alt="Career Portal Logo">
                 <span>Career Portal</span>
             </a>

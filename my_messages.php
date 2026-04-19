@@ -7,6 +7,11 @@ if (!isset($_SESSION['user_id'])) {
     exit();
 }
 
+// Initialize CSRF token if not present
+if (!isset($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
+
 $user_id = $_SESSION['user_id'];
 $user_name = $_SESSION['name'] ?? 'User';
 
@@ -33,11 +38,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $message = $verify->fetch_assoc();
     
     if($message && $message['user_id'] == $user_id) {
+        // Delete related records first due to foreign key constraints
+        $mysqli->query("DELETE FROM contact_replies WHERE contact_id = $contact_id");
+        $mysqli->query("DELETE FROM admin_contact_notifications WHERE contact_id = $contact_id");
+        
+        // Now delete the message itself
         $delete_stmt = $mysqli->prepare("DELETE FROM contact_messages WHERE id = ?");
         $delete_stmt->bind_param("i", $contact_id);
         $delete_stmt->execute();
         $delete_stmt->close();
         echo json_encode(['success' => true]);
+    } else {
+        http_response_code(403);
+        die(json_encode(['error' => 'Unauthorized']));
     }
     $verify_stmt->close();
     exit();
@@ -156,20 +169,27 @@ $mysqli->close();
             --secondary: #4B0082;
             --dark: #1a1a1a;
             --light: #f8f9fa;
+            --accent: #ff6b6b;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
         }
 
         body {
             background: linear-gradient(135deg, var(--dark) 0%, var(--secondary) 100%);
-            color: #333;
-            font-family: 'Segoe UI', sans-serif;
+            color: #e0e0e0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             min-height: 100vh;
             padding-top: 80px;
         }
 
         .navbar {
             background: linear-gradient(90deg, #000 0%, var(--dark) 100%) !important;
-            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
-            padding: 1.2rem 0 !important;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.4);
+            padding: 1rem 0 !important;
             position: fixed;
             top: 0;
             width: 100%;
@@ -187,7 +207,7 @@ $mysqli->close();
         }
 
         .navbar-brand:hover {
-            color: var(--primary) !important;
+            color: var(--accent) !important;
         }
 
         .navbar-brand img {
@@ -211,201 +231,423 @@ $mysqli->close();
             color: white !important;
         }
 
-        .container {
-            margin-top: 2rem;
-        }
-
         .page-header {
+            margin: 40px auto;
+            padding: 40px;
             background: linear-gradient(135deg, rgba(128, 0, 128, 0.15), rgba(255, 107, 107, 0.1));
-            padding: 2rem;
-            border-radius: 10px;
-            box-shadow: 0 4px 12px rgba(128, 0, 128, 0.1);
-            margin-bottom: 2rem;
-            border: 1px solid rgba(128, 0, 128, 0.2);
+            border-radius: 12px;
+            max-width: 900px;
+            border: 1px solid rgba(128, 0, 128, 0.3);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
         }
 
         .page-header h1 {
-            color: #ff6b6b;
-            font-weight: 700;
             margin: 0;
-        }
-
-        .action-buttons {
+            color: #ffffff;
+            font-size: 2rem;
+            font-weight: 700;
+            margin-bottom: 10px;
+            letter-spacing: -0.5px;
             display: flex;
-            gap: 1rem;
-            flex-wrap: wrap;
-            margin-top: 1rem;
-            padding: 1.5rem;
-            padding-top: 0;
-            border-top: 1px solid rgba(128, 0, 128, 0.2);
-        }
-
-        .btn-primary {
-            background-color: #800080 !important;
-            border-color: #800080 !important;
-            color: white !important;
-            padding: 0.5rem 1rem;
-            border-radius: 6px;
-            font-weight: 600;
-            font-size: 0.9rem;
-            transition: all 0.3s ease;
-            text-decoration: none;
-            display: inline-flex;
             align-items: center;
-            gap: 0.5rem;
+            gap: 12px;
         }
 
-        .btn-primary:hover {
-            background-color: #6a006a !important;
-            box-shadow: 0 4px 12px rgba(128, 0, 128, 0.3);
-            text-decoration: none;
+        .page-header p {
+            color: #b0b0b0;
+            margin-top: 8px;
+            font-size: 0.95rem;
+        }
+
+        /* Statistics Dashboard */
+        .stats-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 40px;
+            max-width: 900px;
+            margin-left: auto;
+            margin-right: auto;
+            padding: 0 20px;
+        }
+
+        .stat-card {
+            background: linear-gradient(135deg, rgba(128, 0, 128, 0.1), rgba(255, 107, 107, 0.05));
+            border: 1px solid rgba(128, 0, 128, 0.3);
+            border-radius: 12px;
+            padding: 25px;
+            text-align: center;
+            transition: all 0.3s ease;
+            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);
+        }
+
+        .stat-card:hover {
+            transform: translateY(-5px);
+            border-color: var(--accent);
+            box-shadow: 0 12px 24px rgba(128, 0, 128, 0.2);
+        }
+
+        .stat-icon {
+            font-size: 2.5rem;
+            margin-bottom: 12px;
+            color: var(--accent);
+        }
+
+        .stat-number {
+            font-size: 2.2rem;
+            font-weight: 700;
+            color: #ffffff;
+            margin-bottom: 8px;
+        }
+
+        .stat-label {
+            font-size: 0.95rem;
+            color: #b0b0b0;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        /* Filter Section */
+        .filters-container {
+            max-width: 900px;
+            margin: 0 auto 40px;
+            padding: 0 20px;
         }
 
         .filter-section {
-            background: linear-gradient(135deg, rgba(128, 0, 128, 0.08), rgba(75, 0, 130, 0.05));
-            padding: 1.5rem;
-            border-radius: 10px;
-            box-shadow: 0 4px 12px rgba(128, 0, 128, 0.1);
-            margin-bottom: 2rem;
+            background: linear-gradient(135deg, rgba(128, 0, 128, 0.1), rgba(75, 0, 130, 0.05));
+            padding: 25px;
+            border-radius: 12px;
+            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);
             border: 1px solid rgba(128, 0, 128, 0.2);
         }
 
+        .filter-form {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+            align-items: flex-end;
+        }
+
+        .form-group {
+            flex: 1;
+            min-width: 200px;
+            margin-bottom: 0;
+        }
+
+        .form-group label {
+            display: block;
+            color: #b0b0b0;
+            font-weight: 600;
+            font-size: 0.9rem;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .form-control {
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(128, 0, 128, 0.3);
+            color: #e0e0e0;
+            padding: 10px 15px;
+            border-radius: 8px;
+            font-size: 0.95rem;
+            transition: all 0.3s ease;
+            width: 100%;
+        }
+
+        .form-control::placeholder {
+            color: rgba(224, 224, 224, 0.5);
+        }
+
+        .form-control:focus {
+            border-color: var(--primary) !important;
+            box-shadow: 0 0 0 0.2rem rgba(128, 0, 128, 0.25) !important;
+            background: rgba(255, 255, 255, 0.1) !important;
+            color: #e0e0e0 !important;
+            outline: none;
+        }
+
+        /* Buttons */
+        .btn {
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 0.9rem;
+            transition: all 0.3s ease;
+            border: none;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            text-decoration: none;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--primary) 0%, #6a006a 100%);
+            color: white !important;
+            box-shadow: 0 4px 15px rgba(128, 0, 128, 0.3);
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(128, 0, 128, 0.4);
+            color: white !important;
+            text-decoration: none;
+        }
+
+        .btn-secondary {
+            background: rgba(128, 0, 128, 0.15);
+            color: #b0b0b0;
+            border: 1px solid rgba(128, 0, 128, 0.3);
+        }
+
+        .btn-secondary:hover {
+            background: rgba(128, 0, 128, 0.25);
+            color: white;
+            text-decoration: none;
+        }
+
+        .btn-danger {
+            background: rgba(244, 67, 54, 0.2);
+            color: #f44336;
+            border: 1px solid rgba(244, 67, 54, 0.3);
+        }
+
+        .btn-danger:hover {
+            background: rgba(244, 67, 54, 0.3);
+            border-color: #f44336;
+        }
+
+        .btn-sm {
+            padding: 8px 12px;
+            font-size: 0.85rem;
+        }
+
+        /* Messages Container */
+        .messages-container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+
+        /* Message Cards */
         .message-card {
             background: linear-gradient(135deg, rgba(0, 0, 0, 0.6), rgba(128, 0, 128, 0.1));
             border: 1px solid rgba(128, 0, 128, 0.3);
+            margin-bottom: 30px;
             border-radius: 12px;
-            padding: 0;
-            margin-bottom: 1.5rem;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-            transition: transform 0.2s, box-shadow 0.2s;
             overflow: hidden;
+            transition: all 0.3s ease;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+        }
+
+        .message-card:hover {
+            border-color: var(--accent);
+            box-shadow: 0 12px 40px rgba(128, 0, 128, 0.2);
+            transform: translateY(-3px);
+        }
+
+        .message-header {
+            background: linear-gradient(90deg, rgba(128, 0, 128, 0.2), rgba(255, 107, 107, 0.15));
+            padding: 25px;
+            border-bottom: 1px solid rgba(128, 0, 128, 0.2);
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+
+        .message-header-info {
+            flex: 1;
+            min-width: 250px;
+        }
+
+        .message-subject {
+            font-weight: 700;
+            color: var(--accent);
+            font-size: 1.2rem;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .message-date {
+            color: #9a9a9a;
+            font-size: 0.9rem;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-bottom: 12px;
+        }
+
+        .message-sender {
+            color: #b0b0b0;
+            font-size: 0.9rem;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 16px;
+            border-radius: 8px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .status-open {
+            background: rgba(255, 152, 0, 0.2);
+            color: #ff9800;
+            border: 1px solid rgba(255, 152, 0, 0.4);
+        }
+
+        .status-replied {
+            background: rgba(76, 175, 80, 0.2);
+            color: #4caf50;
+            border: 1px solid rgba(76, 175, 80, 0.4);
+        }
+
+        .replies-count {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: rgba(128, 0, 128, 0.2);
+            color: var(--accent);
+            padding: 8px 14px;
+            border-radius: 8px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            border: 1px solid rgba(255, 107, 107, 0.3);
+            margin-top: 10px;
+        }
+
+        /* Message Body */
+        .message-body {
+            padding: 25px;
+        }
+
+        .message-text {
+            background: rgba(128, 0, 128, 0.08);
+            padding: 18px;
+            border-radius: 8px;
+            border-left: 4px solid var(--primary);
+            color: #d0d0d0;
+            line-height: 1.8;
+            word-wrap: break-word;
+        }
+
+        .message-contact-info {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid rgba(128, 0, 128, 0.2);
+        }
+
+        .contact-info-item {
             display: flex;
             flex-direction: column;
         }
 
-        .message-card:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(128, 0, 128, 0.3);
-            border-color: rgba(128, 0, 128, 0.5);
-        }
-
-        .message-title {
-            font-weight: 700;
-            color: #ff6b6b;
-            font-size: 1.1rem;
-            margin: 0;
-        }
-
-        .message-text {
-            color: #ccc;
-            line-height: 1.6;
-            margin: 1rem 0;
-            padding: 0;
-            background: transparent;
-            border-radius: 0;
-        }
-
-        .message-meta {
+        .contact-info-label {
             color: #9a9a9a;
-            font-size: 0.9rem;
-            margin: 0.5rem 0;
-        }
-
-        .badge-open {
-            background: rgba(255, 152, 0, 0.2);
-            color: #ff9800;
-            border: 1px solid rgba(255, 152, 0, 0.4);
-            padding: 6px 12px;
-            border-radius: 6px;
             font-size: 0.85rem;
-            font-weight: 600;
             text-transform: uppercase;
             letter-spacing: 0.5px;
+            margin-bottom: 6px;
         }
 
-        .badge-replied {
-            background: rgba(76, 175, 80, 0.2);
-            color: #4caf50;
-            border: 1px solid rgba(76, 175, 80, 0.4);
-            padding: 6px 12px;
-            border-radius: 6px;
-            font-size: 0.85rem;
+        .contact-info-value {
+            color: #e0e0e0;
             font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
         }
 
-        .replies-badge {
-            background: rgba(128, 0, 128, 0.2);
-            color: #ff6b6b;
-            padding: 0.5rem 1rem;
-            border-radius: 6px;
-            font-size: 0.85rem;
-            font-weight: 600;
-            display: inline-block;
-            border: 1px solid rgba(255, 107, 107, 0.3);
+        /* Action Buttons */
+        .message-actions {
+            display: flex;
+            gap: 12px;
+            margin-top: 25px;
+            padding-top: 20px;
+            border-top: 1px solid rgba(128, 0, 128, 0.2);
+            flex-wrap: wrap;
         }
 
+        .message-actions .btn {
+            flex: 1;
+            min-width: 140px;
+            justify-content: center;
+        }
+
+        /* Empty State */
         .empty-state {
             text-align: center;
-            padding: 4rem 2rem;
-            color: #9a9a9a;
+            padding: 60px 30px;
             background: linear-gradient(135deg, rgba(0, 0, 0, 0.4), rgba(128, 0, 128, 0.08));
             border-radius: 12px;
             border: 1px solid rgba(128, 0, 128, 0.2);
+            max-width: 600px;
+            margin: 40px auto;
         }
 
-        .empty-state i {
-            font-size: 3rem;
-            color: rgba(255, 107, 107, 0.3);
-            margin-bottom: 1rem;
+        .empty-state-icon {
+            font-size: 4rem;
+            color: rgba(255, 107, 107, 0.2);
+            margin-bottom: 20px;
         }
 
-        .stats {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 1rem;
-            margin-bottom: 2rem;
+        .empty-state h3 {
+            color: #e0e0e0;
+            font-size: 1.5rem;
+            margin-bottom: 12px;
         }
 
-        .stat-box {
-            background: linear-gradient(135deg, rgba(128, 0, 128, 0.1), rgba(255, 107, 107, 0.05));
-            padding: 1.5rem;
-            border-radius: 10px;
-            text-align: center;
-            box-shadow: 0 4px 12px rgba(128, 0, 128, 0.15);
-            border: 1px solid rgba(128, 0, 128, 0.2);
-        }
-
-        .stat-number {
-            font-size: 2rem;
-            font-weight: 700;
-            color: #ff6b6b;
-        }
-
-        .stat-label {
+        .empty-state p {
             color: #9a9a9a;
-            font-size: 0.9rem;
-            margin-top: 0.5rem;
+            margin-bottom: 30px;
+            font-size: 0.95rem;
         }
 
-        .form-control:focus {
-            border-color: #800080 !important;
-            box-shadow: 0 0 0 0.2rem rgba(128, 0, 128, 0.25) !important;
-            background: rgba(255, 255, 255, 0.95) !important;
-            color: #333 !important;
-        }
+        /* Responsive */
+        @media (max-width: 768px) {
+            .page-header {
+                padding: 30px 20px;
+                margin: 30px 15px;
+            }
 
-        .form-control {
-            background: rgba(255, 255, 255, 0.9);
-            border: 1px solid rgba(128, 0, 128, 0.3);
-            color: #333;
-        }
+            .page-header h1 {
+                font-size: 1.5rem;
+            }
 
-        .btn-sm {
-            font-weight: 600;
-            font-size: 0.85rem;
-            padding: 0.4rem 0.8rem;
+            .filter-form {
+                flex-direction: column;
+            }
+
+            .filter-form > div {
+                width: 100%;
+            }
+
+            .message-header {
+                flex-direction: column;
+                padding: 20px;
+            }
+
+            .message-actions .btn {
+                min-width: 100%;
+            }
+
+            .stats-container {
+                padding: 0 15px;
+                grid-template-columns: 1fr;
+            }
         }
     </style>
 </head>
@@ -436,92 +678,127 @@ $mysqli->close();
     <div class="container">
         <!-- Page Header -->
         <div class="page-header">
-            <h1><i class="fas fa-inbox"></i> My Messages</h1>
-            <p class="text-muted mt-2">View your contact messages and admin replies</p>
+            <h1><i class="fas fa-envelope"></i> My Messages</h1>
+            <p>Manage your contact messages and admin replies in one place</p>
         </div>
 
         <!-- Statistics -->
-        <div class="stats">
-            <div class="stat-box">
+        <div class="stats-container">
+            <div class="stat-card">
+                <div class="stat-icon"><i class="fas fa-inbox"></i></div>
                 <div class="stat-number"><?php echo count($messages); ?></div>
                 <div class="stat-label">Total Messages</div>
             </div>
-            <div class="stat-box">
+            <div class="stat-card">
+                <div class="stat-icon"><i class="fas fa-clock"></i></div>
                 <div class="stat-number"><?php echo count(array_filter($messages, fn($m) => $m['status'] === 'open')); ?></div>
                 <div class="stat-label">Pending Replies</div>
             </div>
-            <div class="stat-box">
+            <div class="stat-card">
+                <div class="stat-icon"><i class="fas fa-check"></i></div>
                 <div class="stat-number"><?php echo count(array_filter($messages, fn($m) => $m['status'] === 'replied')); ?></div>
                 <div class="stat-label">Replied</div>
             </div>
         </div>
 
         <!-- Filters -->
-        <div class="filter-section">
-            <form method="get" class="form-inline" style="gap: 1rem; flex-wrap: wrap;">
-                <div class="form-group flex-grow-1" style="min-width: 250px;">
-                    <input type="text" name="search" class="form-control w-100" placeholder="Search by subject or message..." 
-                           value="<?php echo htmlspecialchars($search); ?>">
-                </div>
-                <select name="status" class="form-control" style="min-width: 150px;">
-                    <option value="">All Status</option>
-                    <option value="open" <?php if($status_filter === 'open') echo 'selected'; ?>>Pending</option>
-                    <option value="replied" <?php if($status_filter === 'replied') echo 'selected'; ?>>Replied</option>
-                </select>
-                <button type="submit" class="btn btn-primary"><i class="fas fa-search"></i> Search</button>
-                <a href="my_messages.php" class="btn btn-secondary"><i class="fas fa-redo"></i> Reset</a>
-            </form>
+        <div class="filters-container">
+            <div class="filter-section">
+                <form method="get" class="filter-form">
+                    <div class="form-group" style="flex: 2;">
+                        <label for="search">Search Messages</label>
+                        <input type="text" id="search" name="search" class="form-control" placeholder="Search by subject or message..." 
+                               value="<?php echo htmlspecialchars($search); ?>">
+                    </div>
+                    <div class="form-group">
+                        <label for="status">Filter by Status</label>
+                        <select name="status" id="status" class="form-control">
+                            <option value="">All Status</option>
+                            <option value="open" <?php if($status_filter === 'open') echo 'selected'; ?>>Pending</option>
+                            <option value="replied" <?php if($status_filter === 'replied') echo 'selected'; ?>>Replied</option>
+                        </select>
+                    </div>
+                    <div style="display: flex; gap: 10px; align-self: flex-end;">
+                        <button type="submit" class="btn btn-primary"><i class="fas fa-search"></i> Search</button>
+                        <a href="my_messages.php" class="btn btn-secondary"><i class="fas fa-redo"></i> Reset</a>
+                    </div>
+                </form>
+            </div>
         </div>
 
         <!-- Messages List -->
-        <div>
+        <div class="messages-container">
             <?php if(empty($messages)): ?>
                 <div class="empty-state">
-                    <i class="fas fa-inbox"></i>
-                    <h3>No Messages</h3>
-                    <p>You haven't sent any contact messages yet.</p>
-                    <a href="Contact.html" class="btn btn-primary mt-3">
-                        <i class="fas fa-plus"></i> Send a Message
+                    <div class="empty-state-icon"><i class="fas fa-inbox"></i></div>
+                    <h3>No Messages Yet</h3>
+                    <p>You haven't sent any contact messages yet. Start a conversation with us to get guidance and support.</p>
+                    <a href="Contact.html" class="btn btn-primary" style="justify-content: center;">
+                        <i class="fas fa-envelope"></i> Send Your First Message
                     </a>
                 </div>
             <?php else: ?>
                 <?php foreach($messages as $message): ?>
                     <div class="message-card">
-                        <div style="padding: 1.5rem 1.5rem 0 1.5rem;">
-                            <div style="display: flex; justify-content: space-between; align-items: start; flex-wrap: wrap; gap: 1rem; margin-bottom: 0;">
-                                <div style="flex: 1; min-width: 250px;">
-                                    <h5 class="message-title"><?php echo htmlspecialchars($message['subject']); ?></h5>
-                                    <p class="message-meta">
-                                        <i class="fas fa-clock"></i> <?php echo date('M d, Y H:i', strtotime($message['created_at'])); ?>
-                                    </p>
+                        <div class="message-header">
+                            <div class="message-header-info">
+                                <div class="message-subject">
+                                    <i class="fas fa-comment-dots"></i>
+                                    <?php echo htmlspecialchars($message['subject']); ?>
                                 </div>
-                                <div style="text-align: right;">
-                                    <span class="badge <?php echo $message['status'] === 'open' ? 'badge-open' : 'badge-replied'; ?>">
-                                        <?php echo $message['status'] === 'open' ? 'Pending Reply' : 'Replied'; ?>
-                                    </span>
-                                    <?php if($reply_counts[$message['id']] > 0): ?>
-                                        <div class="replies-badge mt-2">
-                                            <i class="fas fa-reply"></i> <?php echo $reply_counts[$message['id']]; ?> Reply/Replies
-                                        </div>
-                                    <?php endif; ?>
+                                <div class="message-date">
+                                    <i class="fas fa-clock"></i> <?php echo date('M d, Y • H:i', strtotime($message['created_at'])); ?>
+                                </div>
+                                <div class="message-sender">
+                                    <i class="fas fa-user"></i> <?php echo htmlspecialchars($message['name']); ?>
                                 </div>
                             </div>
-
-                            <div class="message-text">
-                                <?php echo nl2br(htmlspecialchars($message['message'])); ?>
+                            <div style="text-align: right;">
+                                <div class="status-badge <?php echo $message['status'] === 'open' ? 'status-open' : 'status-replied'; ?>">
+                                    <i class="fas <?php echo $message['status'] === 'open' ? 'fa-hourglass-end' : 'fa-check-circle'; ?>"></i>
+                                    <?php echo $message['status'] === 'open' ? 'Pending Reply' : 'Replied'; ?>
+                                </div>
+                                <?php if($reply_counts[$message['id']] > 0): ?>
+                                    <div class="replies-count">
+                                        <i class="fas fa-reply"></i> <?php echo $reply_counts[$message['id']]; ?> <?php echo $reply_counts[$message['id']] === 1 ? 'Reply' : 'Replies'; ?>
+                                    </div>
+                                <?php endif; ?>
                             </div>
                         </div>
 
-                        <div class="action-buttons">
-                            <a href="view_contact.php?id=<?php echo $message['id']; ?>&user=1" 
-                               class="btn btn-primary btn-sm view-message-btn"
-                               data-message-id="<?php echo $message['id']; ?>"
-                               data-status="<?php echo $message['status']; ?>">
-                                <i class="fas fa-eye"></i> View Details & Replies
-                            </a>
-                            <button class="btn btn-danger btn-sm" onclick="deleteMessage(<?php echo $message['id']; ?>)">
-                                <i class="fas fa-trash"></i> Delete
-                            </button>
+                        <div class="message-body">
+                            <div class="message-text">
+                                <?php echo nl2br(htmlspecialchars($message['message'])); ?>
+                            </div>
+
+                            <div class="message-contact-info">
+                                <div class="contact-info-item">
+                                    <span class="contact-info-label"><i class="fas fa-envelope"></i> Email</span>
+                                    <span class="contact-info-value"><?php echo htmlspecialchars($message['email']); ?></span>
+                                </div>
+                                <?php if(!empty($message['phone'])): ?>
+                                <div class="contact-info-item">
+                                    <span class="contact-info-label"><i class="fas fa-phone"></i> Phone</span>
+                                    <span class="contact-info-value"><?php echo htmlspecialchars($message['phone']); ?></span>
+                                </div>
+                                <?php endif; ?>
+                                <div class="contact-info-item">
+                                    <span class="contact-info-label"><i class="fas fa-calendar"></i> Sent</span>
+                                    <span class="contact-info-value"><?php echo date('M d, Y', strtotime($message['created_at'])); ?></span>
+                                </div>
+                            </div>
+
+                            <div class="message-actions">
+                                <a href="view_contact.php?id=<?php echo $message['id']; ?>&user=1" 
+                                   class="btn btn-primary btn-sm"
+                                   data-message-id="<?php echo $message['id']; ?>"
+                                   data-status="<?php echo $message['status']; ?>">
+                                    <i class="fas fa-eye"></i> View Details & Replies
+                                </a>
+                                <button class="btn btn-danger btn-sm" onclick="deleteMessage(<?php echo $message['id']; ?>)">
+                                    <i class="fas fa-trash-alt"></i> Delete Message
+                                </button>
+                            </div>
                         </div>
                     </div>
                 <?php endforeach; ?>
@@ -543,13 +820,29 @@ $mysqli->close();
                     data: {
                         action: 'delete',
                         contact_id: messageId,
-                        csrf_token: '<?php echo $_SESSION['csrf_token']; ?>'
+                        csrf_token: '<?php echo htmlspecialchars($_SESSION['csrf_token'], ENT_QUOTES, 'UTF-8'); ?>'
                     },
                     success: function(response) {
-                        location.reload();
+                        try {
+                            const result = JSON.parse(response);
+                            if(result.success) {
+                                // Remove the card with smooth animation
+                                const card = document.querySelector('[data-message-id="' + messageId + '"]')?.closest('.message-card');
+                                if(card) {
+                                    card.style.transition = 'all 0.3s ease';
+                                    card.style.opacity = '0';
+                                    card.style.transform = 'translateY(-10px)';
+                                    setTimeout(() => location.reload(), 300);
+                                } else {
+                                    location.reload();
+                                }
+                            }
+                        } catch(e) {
+                            location.reload();
+                        }
                     },
-                    error: function() {
-                        alert('Error deleting message');
+                    error: function(xhr, status, error) {
+                        alert('Error deleting message: ' + (xhr.responseJSON?.error || 'Unknown error'));
                     }
                 });
             }

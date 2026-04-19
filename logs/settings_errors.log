@@ -1,0 +1,5 @@
+[2026-04-19 15:30:35] [Admin: 1] Exception: Unknown column 'phone' in 'field list'
+[2026-04-19 15:30:35] [Admin: 1] Exception: Table 'career_counseling.admin_notifications' doesn't exist
+[2026-04-19 15:30:35] [Admin: 1] Exception: Table 'career_counseling.admin_preferences' doesn't exist
+[2026-04-19 15:33:15] [Admin: 1] Exception: Commands out of sync; you can't run this command now
+[2026-04-19 15:33:15] [Admin: 1] Exception: Table 'career_counseling.admin_notifications' doesn't exist

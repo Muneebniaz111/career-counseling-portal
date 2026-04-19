@@ -1,6 +1,9 @@
 <?php
 require_once __DIR__ . '/bootstrap.php';
 
+// CRITICAL FIX: Create database connection BEFORE using it
+$mysqli = new mysqli("localhost", "root", "", "career_counseling");
+
 // Check if admin is logged in
 if (!isset($_SESSION['admin_id'])) {
     header("Location: Log-in (Admin).php");
@@ -21,7 +24,6 @@ if ($admin_verify->get_result()->num_rows === 0) {
 }
 $admin_verify->close();
 
-$mysqli = new mysqli("localhost", "root", "", "career_counseling");
 $message = '';
 $message_type = '';
 

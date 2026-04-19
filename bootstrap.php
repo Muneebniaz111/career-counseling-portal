@@ -37,5 +37,3 @@ ini_set('display_errors', 1);
 // Set timezone
 date_default_timezone_set('UTC');
 
-?>
-

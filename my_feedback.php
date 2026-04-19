@@ -7,6 +7,11 @@ if (!isset($_SESSION['user_id'])) {
     exit();
 }
 
+// Initialize CSRF token if not present
+if (!isset($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
+
 $user_id = $_SESSION['user_id'];
 $user_name = $_SESSION['user_name'];
 $mysqli = new mysqli("localhost", "root", "", "career_counseling");
@@ -47,7 +52,8 @@ try {
 }
 
 // Get user's feedback using prepared statement
-$feedback_stmt = $mysqli->prepare("SELECT * FROM feedback WHERE user_id = ? ORDER BY created_at DESC");
+// Show feedback where user_id matches current user OR user_id is NULL (for previously submitted feedback)
+$feedback_stmt = $mysqli->prepare("SELECT * FROM feedback WHERE user_id = ? OR user_id IS NULL ORDER BY created_at DESC");
 $feedback_result = null;
 if ($feedback_stmt) {
     $feedback_stmt->bind_param("i", $user_id);
@@ -592,7 +598,7 @@ if ($feedback_stmt) {
         </div>
     <?php endif; ?>
 
-    <?php if ($feedback_result->num_rows > 0): ?>
+    <?php if ($feedback_result && $feedback_result->num_rows > 0): ?>
         <!-- Statistics Dashboard -->
         <div class="stats-container">
             <div class="stat-card">
@@ -640,12 +646,29 @@ if ($feedback_stmt) {
             ?>
                 <?php
                     $feedback_id = $feedback['id'];
-                    $replies_result = $mysqli->query("SELECT fr.*, a.name as admin_name FROM feedback_replies fr LEFT JOIN admin_users a ON fr.admin_id = a.id WHERE fr.feedback_id = $feedback_id ORDER BY fr.created_at ASC");
-                    $reply_count = $replies_result->num_rows;
                     
-                    // Check if this feedback has unread replies
-                    $unread_check = $mysqli->query("SELECT id FROM feedback_notifications WHERE feedback_id = $feedback_id AND user_id = $user_id AND is_read = 0");
-                    $has_unread = $unread_check->num_rows > 0;
+                    // Get replies with prepared statement to prevent SQL injection
+                    $replies_stmt = $mysqli->prepare("SELECT fr.*, a.name as admin_name FROM feedback_replies fr LEFT JOIN admin_users a ON fr.admin_id = a.id WHERE fr.feedback_id = ? ORDER BY fr.created_at ASC");
+                    $replies_result = null;
+                    $reply_count = 0;
+                    if ($replies_stmt) {
+                        $replies_stmt->bind_param("i", $feedback_id);
+                        $replies_stmt->execute();
+                        $replies_result = $replies_stmt->get_result();
+                        $reply_count = $replies_result->num_rows;
+                        $replies_stmt->close();
+                    }
+                    
+                    // Check if this feedback has unread replies with prepared statement
+                    $unread_stmt = $mysqli->prepare("SELECT id FROM feedback_notifications WHERE feedback_id = ? AND user_id = ? AND is_read = 0");
+                    $has_unread = false;
+                    if ($unread_stmt) {
+                        $unread_stmt->bind_param("ii", $feedback_id, $user_id);
+                        $unread_stmt->execute();
+                        $unread_result = $unread_stmt->get_result();
+                        $has_unread = $unread_result->num_rows > 0;
+                        $unread_stmt->close();
+                    }
                     
                     $status = $feedback['status'] ?? 'open';
                 ?>
